@@ -23,29 +23,42 @@
 
 import SwiftUI
 
+public enum SpacingDistribution {
+    /// Fixed spacing between items.
+    case fixed
+    /// Spacing adjusted to fill the available width.
+    case fillWidth
+}
+
+
+/// A horizontal stack that wraps its content to fit within the available width
 public struct FittingHStack<Content: View>: View {
     let alignment: VerticalAlignment
     let spacing: CGFloat
     let lineSpacing: CGFloat
+    let spacingDistribution: SpacingDistribution
     let content: () -> Content
     
     public init(
         alignment: VerticalAlignment = .center,
         spacing: CGFloat = 8,
         lineSpacing: CGFloat = 8,
+        spacingDistribution: SpacingDistribution = .fixed,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.alignment = alignment
         self.spacing = spacing
         self.lineSpacing = lineSpacing
+        self.spacingDistribution = spacingDistribution
         self.content = content
     }
     
     public var body: some View {
         FittingHStackLayout(
             alignment: alignment,
-            horizontalSpacing: spacing,
-            verticalSpacing: lineSpacing
+            horizontalMinSpacing: spacing,
+            verticalSpacing: lineSpacing,
+            spacingDistribution: spacingDistribution
         ) {
             content()
         }
@@ -54,112 +67,136 @@ public struct FittingHStack<Content: View>: View {
 
 private struct FittingHStackLayout: Layout {
     var alignment: VerticalAlignment
-    var horizontalSpacing: CGFloat
+    var horizontalMinSpacing: CGFloat
     var verticalSpacing: CGFloat
+    var spacingDistribution: SpacingDistribution
     
     init(
-        alignment: VerticalAlignment = .center, horizontalSpacing: CGFloat = 8,
-        verticalSpacing: CGFloat = 8
+        alignment: VerticalAlignment = .center,
+        horizontalMinSpacing: CGFloat = 8,
+        verticalSpacing: CGFloat = 8,
+        spacingDistribution: SpacingDistribution = .fixed
     ) {
         self.alignment = alignment
-        self.horizontalSpacing = horizontalSpacing
+        self.horizontalMinSpacing = horizontalMinSpacing
         self.verticalSpacing = verticalSpacing
+        self.spacingDistribution = spacingDistribution
     }
     
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize
-    {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
         let result = computeLayout(for: subviews, proposal: proposal)
         cache.rows = result.rows
+        cache.rowItemWidths = result.rowItemWidths
+        cache.rowHeights = result.rowHeights
         return result.size
     }
     
-    func placeSubviews(
-        in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache
-    ) {
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
         guard !subviews.isEmpty else { return }
         
         var y = bounds.minY
         
-        for row in cache.rows {
+        for (rowIndex, row) in cache.rows.enumerated() {
             var x = bounds.minX
-            let rowHeight =
-            row.map { $0.sizeThatFits(.init(width: bounds.width, height: nil)).height }.max()
-            ?? 0
+            let widths = cache.rowItemWidths[safe: rowIndex] ?? row.map { $0.sizeThatFits(.unspecified).width }
+            let rowHeight = cache.rowHeights[safe: rowIndex] ?? row.map { $0.sizeThatFits(.unspecified).height }.max() ?? 0
             
-            for subview in row {
-                let subviewSize = subview.sizeThatFits(.init(width: bounds.width, height: nil))
+            let gaps = max(0, row.count - 1)
+            let contentWidth = widths.reduce(0, +)
+            
+            let interItemSpacing: CGFloat = {
+                guard spacingDistribution == .fillWidth, bounds.width.isFinite, gaps > 0 else {
+                    return horizontalMinSpacing
+                }
+                let minTotal = contentWidth + CGFloat(gaps) * horizontalMinSpacing
+                let leftover = max(0, bounds.width - minTotal)
+                return horizontalMinSpacing + leftover / CGFloat(gaps)
+            }()
+            
+            for (i, subview) in row.enumerated() {
+                let w = widths[safe: i] ?? subview.sizeThatFits(.unspecified).width
+                let h = subview.sizeThatFits(.init(width: w, height: nil)).height
                 
                 let yPosition: CGFloat
                 switch alignment {
                     case .top:
                         yPosition = y
                     case .bottom:
-                        yPosition = y + rowHeight - subviewSize.height
-                    default:  // .center
-                        yPosition = y + (rowHeight - subviewSize.height) / 2
+                        yPosition = y + rowHeight - h
+                    default:
+                        yPosition = y + (rowHeight - h) / 2
                 }
                 
-                let placementProposal = ProposedViewSize(
-                    width: subviewSize.width, height: subviewSize.height)
-                subview.place(
-                    at: CGPoint(x: x, y: yPosition), anchor: .topLeading,
-                    proposal: placementProposal)
-                x += subviewSize.width + horizontalSpacing
+                subview.place(at: CGPoint(x: x, y: yPosition), anchor: .topLeading, proposal: ProposedViewSize(width: w, height: h))
+                
+                x += w
+                
+                if i < row.count - 1 {
+                    x += interItemSpacing
+                }
             }
+            
             y += rowHeight + verticalSpacing
         }
     }
     
     private func computeLayout(for subviews: Subviews, proposal: ProposedViewSize) -> (
-        size: CGSize, rows: [[LayoutSubviews.Element]]
+        size: CGSize,
+        rows: [[LayoutSubviews.Element]],
+        rowItemWidths: [[CGFloat]],
+        rowHeights: [CGFloat]
     ) {
         let containerWidth = proposal.width ?? .infinity
+        
         var rows: [[LayoutSubviews.Element]] = []
+        var rowItemWidths: [[CGFloat]] = []
+        var rowHeights: [CGFloat] = []
+        
         var currentRow: [LayoutSubviews.Element] = []
+        var currentRowWidths: [CGFloat] = []
         var currentRowWidth: CGFloat = 0
-        var totalHeight: CGFloat = 0
         var currentRowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        
+        func finalizeCurrentRow() {
+            guard !currentRow.isEmpty else { return }
+            
+            rows.append(currentRow)
+            rowItemWidths.append(currentRowWidths)
+            rowHeights.append(currentRowHeight)
+            totalHeight += (rows.count > 1 ? verticalSpacing : 0) + currentRowHeight
+            currentRow = []
+            currentRowWidths = []
+            currentRowWidth = 0
+            currentRowHeight = 0
+        }
         
         for subview in subviews {
-            let subviewSize = subview.sizeThatFits(.init(width: containerWidth, height: nil))
+            let s = subview.sizeThatFits(.init(width: containerWidth, height: nil))
+            let nextWidthIfAdded = currentRowWidth + s.width + (currentRow.isEmpty ? 0 : horizontalMinSpacing)
             
-            if currentRowWidth + subviewSize.width + (!currentRow.isEmpty ? horizontalSpacing : 0)
-                > containerWidth
-            {
-                totalHeight += currentRowHeight
-                if !rows.isEmpty {
-                    totalHeight += verticalSpacing
-                }
-                rows.append(currentRow)
-                currentRow = []
-                currentRowWidth = 0
-                currentRowHeight = 0
+            if containerWidth.isFinite && nextWidthIfAdded > containerWidth && !currentRow.isEmpty {
+                finalizeCurrentRow()
             }
             
             currentRow.append(subview)
-            currentRowWidth += subviewSize.width
-            if !currentRow.isEmpty {
-                currentRowWidth += horizontalSpacing
-            }
-            currentRowHeight = max(currentRowHeight, subviewSize.height)
+            currentRowWidths.append(s.width)
+            currentRowWidth += s.width
+            currentRowHeight = max(currentRowHeight, s.height)
         }
         
         if !currentRow.isEmpty {
-            totalHeight += currentRowHeight
-            if !rows.isEmpty {
-                totalHeight += verticalSpacing
-            }
-            rows.append(currentRow)
+            finalizeCurrentRow()
         }
         
-        let finalWidth =
-        proposal.width ?? rows.map { row in
-            let subviewsWidth = row.reduce(0) { $0 + $1.sizeThatFits(.unspecified).width }
-            let spacing = CGFloat(max(0, row.count - 1)) * horizontalSpacing
-            return subviewsWidth + spacing
-        }.max() ?? 0
+        let naturalRowWidths = zip(rows, rowItemWidths).map { row, widths in
+            let gaps = max(0, row.count - 1)
+            return widths.reduce(0, +) + CGFloat(gaps) * horizontalMinSpacing
+        }
         
-        return (CGSize(width: finalWidth, height: totalHeight), rows)
+        let finalWidth = containerWidth.isFinite ? containerWidth : (naturalRowWidths.max() ?? 0)
+        
+        return (CGSize(width: finalWidth, height: totalHeight), rows, rowItemWidths, rowHeights)
     }
     
     func makeCache(subviews: Subviews) -> Cache {
@@ -168,5 +205,13 @@ private struct FittingHStackLayout: Layout {
     
     struct Cache {
         var rows: [[LayoutSubviews.Element]] = []
+        var rowItemWidths: [[CGFloat]] = []
+        var rowHeights: [CGFloat] = []
+    }
+}
+
+private extension Collection {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }
