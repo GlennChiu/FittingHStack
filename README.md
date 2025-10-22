@@ -50,7 +50,7 @@ You can copy the `FittingHStack.swift` file directly into your project,
 or add it as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/GlennChiu/FittingHStack.git", from: "1.1.0")
+.package(url: "https://github.com/GlennChiu/FittingHStack.git", from: "1.1.1")
 ```
 
 Then import it:
