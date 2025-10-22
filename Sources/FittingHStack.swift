@@ -30,7 +30,6 @@ public enum SpacingDistribution {
     case fillWidth
 }
 
-
 /// A horizontal stack that wraps its content to fit within the available width
 public struct FittingHStack<Content: View>: View {
     let alignment: VerticalAlignment
@@ -210,8 +209,8 @@ private struct FittingHStackLayout: Layout {
     }
 }
 
-private extension Collection {
-    subscript(safe index: Index) -> Element? {
+extension Collection {
+    fileprivate subscript(safe index: Index) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
 }
