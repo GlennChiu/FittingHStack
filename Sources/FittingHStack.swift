@@ -145,7 +145,7 @@ private struct FittingHStackLayout: Layout {
         rowItemWidths: [[CGFloat]],
         rowHeights: [CGFloat]
     ) {
-        let containerWidth = proposal.width ?? .infinity
+        let availableWidth = proposal.width
         
         var rows: [[LayoutSubviews.Element]] = []
         var rowItemWidths: [[CGFloat]] = []
@@ -171,20 +171,24 @@ private struct FittingHStackLayout: Layout {
         }
         
         for subview in subviews {
-            let s = subview.sizeThatFits(.init(width: containerWidth, height: nil))
-            let nextWidthIfAdded = currentRowWidth + s.width + (currentRow.isEmpty ? 0 : horizontalMinSpacing)
+            let idealSize = subview.sizeThatFits(.unspecified)
+            let measuredWidth = availableWidth.map { min(idealSize.width, $0) } ?? idealSize.width
+            let measuredHeight = subview.sizeThatFits(.init(width: measuredWidth, height: nil)).height
             
-            if containerWidth.isFinite && nextWidthIfAdded > containerWidth && !currentRow.isEmpty {
+            let nextWidthIfAdded = currentRowWidth + measuredWidth + (currentRow.isEmpty ? 0 : horizontalMinSpacing)
+            
+            if let maxWidth = availableWidth, nextWidthIfAdded > maxWidth, !currentRow.isEmpty {
                 finalizeCurrentRow()
             }
             
             currentRow.append(subview)
-            currentRowWidths.append(s.width)
-            currentRowWidth += s.width
-            currentRowHeight = max(currentRowHeight, s.height)
+            currentRowWidths.append(measuredWidth)
+            currentRowWidth += measuredWidth + (currentRow.count > 1 ? horizontalMinSpacing : 0)
+            currentRowHeight = max(currentRowHeight, measuredHeight)
         }
         
         if !currentRow.isEmpty {
+            currentRowWidth -= (currentRow.count > 1 ? horizontalMinSpacing : 0)
             finalizeCurrentRow()
         }
         
@@ -193,7 +197,7 @@ private struct FittingHStackLayout: Layout {
             return widths.reduce(0, +) + CGFloat(gaps) * horizontalMinSpacing
         }
         
-        let finalWidth = containerWidth.isFinite ? containerWidth : (naturalRowWidths.max() ?? 0)
+        let finalWidth = availableWidth ?? (naturalRowWidths.max() ?? 0)
         
         return (CGSize(width: finalWidth, height: totalHeight), rows, rowItemWidths, rowHeights)
     }
