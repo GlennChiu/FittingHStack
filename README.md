@@ -22,7 +22,7 @@ import SwiftUI
 import FittingHStack
 
 struct ExampleView: View {
-    let tags = ["Swift", "SwiftUI", "Combine", "Async/Await", "Concurrency", "iOS 18", "Layout Protocol"]
+    let tags = ["Swift", "SwiftUI", "Combine", "Async/Await", "Concurrency", "iOS 26", "Layout Protocol"]
 
     var body: some View {
         FittingHStack(spacing: 10, lineSpacing: 10) {
@@ -50,7 +50,7 @@ You can copy the `FittingHStack.swift` file directly into your project,
 or add it as a Swift Package dependency:
 
 ```swift
-.package(url: "https://github.com/GlennChiu/FittingHStack.git", from: "1.0.0")
+.package(url: "https://github.com/GlennChiu/FittingHStack.git", from: "1.1.0")
 ```
 
 Then import it:
